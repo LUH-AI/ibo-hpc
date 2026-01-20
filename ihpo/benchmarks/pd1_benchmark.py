@@ -5,54 +5,60 @@ from ..consts import PD1_TASKS
 import numpy as np
 import os
 import pickle
+from ConfigSpace import ConfigurationSpace
+from carps.objective_functions.mfpbench import MFPBenchObjectiveFunction
+from carps.utils.trials import TrialInfo, TrialValue
 
 class PD1Benchmark(BaseBenchmark):
 
     def __init__(self, task, save_dir='./benchmark_data/pd1/surrogates/') -> None:
         super().__init__()
-        self._search_space = PD1SearchSpace()
+        self._search_space = PD1SearchSpace(task)
         self._file_path = save_dir
         self.task = task
         self.surrogate_cache = {}
-        self._load_surrogates()
+        self._setup_carps()
 
-    def _load_surrogates(self):
+    def _setup_carps(self):
         """
             Load the trained surrogates representing the objective function.
         """
-        for task in PD1_TASKS:
-            surrogate_task_path = os.path.join(self._file_path, task)
-            train_surrogate_file = surrogate_task_path + '/best_train'
-            val_surrogate_file = surrogate_task_path + '/best_valid'
-            with open(train_surrogate_file, 'rb') as f:
-                train_surrogate = pickle.load(f)
-                self.surrogate_cache[task + '_train'] = train_surrogate
-            with open(val_surrogate_file, 'rb') as f:
-                val_surrogate = pickle.load(f)
-                self.surrogate_cache[task + '_valid'] = val_surrogate
+        self.objective_function = MFPBenchObjectiveFunction(
+            benchmark_name="pd1",
+            benchmark=self.task,
+            metric = ["train_cost","valid_error_rate"]
+        )
+        self.configuration_space: ConfigurationSpace = self.objective_function.configspace
+        print()
         
 
     def query(self, cfg: Dict, budget=None) -> BenchQueryResult:
-        keys = ['_valid', '_train']
+        reformatted_cfg = self._reformat_cfg(cfg)
+        trial_info = TrialInfo(
+            config=reformatted_cfg,
+            budget=budget
+        )
+        result = self.objective_function.evaluate(trial_info=trial_info)
 
-        surrogate_id = self.task + keys[0]
+        # round perforamnces, return this in the form of a BenchQueryResult
 
-        benchmark_args = {}
-        sorted_cfg = {k: cfg[k] for k in self._search_space.get_search_space_definition().keys()}
-        x = np.array(list(sorted_cfg.values())).reshape(1, -1)
-        for k in keys:
-            surrogate_id = self.task + k
-            surrogate = self.surrogate_cache[surrogate_id]
-            y = surrogate.predict(x).flatten()[0]
-            if k == '_train':
-                benchmark_args['train_performance'] = y 
-            elif k == '_valid':
-                benchmark_args['val_performance'] = y
-                benchmark_args['test_performance'] = y
-                
+        benchmark_args = {
+            'train_performance': - result.cost[0],
+            'val_performance': - result.cost[1],
+            'test_performance': - result.cost[1]
+        }
+
         return BenchQueryResult(**benchmark_args)
+                
         
-    
+    def _reformat_cfg(self, cfg: Dict) -> Dict:
+        return {
+            "lr_decay_factor" : cfg["hps.lr_hparams.decay_steps_factor"],
+            "lr_initial" : cfg["hps.lr_hparams.initial_value"],
+            "lr_power" : cfg["hps.lr_hparams.power"],
+            "opt_momentum" : cfg["hps.opt_hparams.momentum"],
+        }
+
     def get_min_and_max(self):
         return [0, 1]
     

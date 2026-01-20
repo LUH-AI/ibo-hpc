@@ -10,9 +10,9 @@ class OptimizerFactory:
         return cls._instance
     
     @classmethod
-    def get_optimizer(cls, optimizer_name, optimizer_cfg):
+    def get_optimizer(cls, optimizer_name, optimizer_cfg,  prior_kind, task):
         if optimizer_name == 'pc':
-            return PCOptimizer(**optimizer_cfg)
+            return PCOptimizer(**optimizer_cfg, prior_kind=prior_kind, task=task)
         elif optimizer_name == 'pc_transfer':
             return PCTransOptimizer(**optimizer_cfg)
         elif optimizer_name == 'pc_transfer_rf':

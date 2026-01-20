@@ -8,3 +8,13 @@ bopro_experiments/
 *.c
 *.egg-info/
 */dist/
+
+# lib directory
+lib
+pd1_experiments
+#cpython files
+*.so
+slurm*.out
+pd_experiment_without_sample_from_ball
+pd1_experiments_with_sample_from_ball
+pd1_experiment

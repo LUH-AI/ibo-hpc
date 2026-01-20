@@ -10,7 +10,6 @@
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
-            "args": ["--num-experiments", "1", "--optimizer", "pc_transfer", "--tasks", "cifar10", "cifar100", "ImageNet16-200", "--num-procs", "1", "--log-dir", "data/trans/", "--exp", "nas201_transfer"],
             "justMyCode": false
         }
     ]

@@ -175,8 +175,8 @@ class ConfigurationNumericalTransform:
                 config_val = choices[int(val)]
                 dict_repr[key] = config_val
             else:
-                if search_space_def[key]['is_log']:
-                    val = np.exp(val)
+                #if search_space_def[key]['is_log']:
+                #    val = np.exp(val)
                 dict_repr[key] = val
         return dict_repr
     

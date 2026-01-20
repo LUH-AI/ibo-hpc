@@ -14,6 +14,12 @@ from sklearn.metrics import r2_score
 import scipy
 import warnings
 from time import time
+import pandas as pd
+import gower
+from ConfigSpace import Configuration
+from copy import deepcopy
+# PRiors from DYNABO
+PRIOR_ORIGIN_BASE_PATH = '/mnt/home/lfehring/DynaBO/benchmark_data/prior_data/mfpbench/cluster'
 
 warnings.filterwarnings("ignore")
 
@@ -29,7 +35,7 @@ class PCOptimizer(Optimizer):
     def __init__(self, search_space: SearchSpace, objective, iterations=100,
                  num_self_consistency_samplings=20, num_samples=20, initial_samples=20, use_ei=False, num_ei_repeats=20,
                  num_ei_samples=1000, num_ei_variance_approx=10, interaction_dist_sample_decay=0.9, 
-                 conditioning_value_quantile=1, log_hpo_runtime=False, pc_type='mspn', max_rel_ball_size=0.05, seed=0) -> None:
+                 conditioning_value_quantile=1, log_hpo_runtime=False, pc_type='mspn', max_rel_ball_size=0.05, seed=0, prior_kind=None, task=None) -> None:
         """
             Init PCOptimizer
 
@@ -83,6 +89,11 @@ class PCOptimizer(Optimizer):
         self.transform = ConfigurationNumericalTransform(search_space)
         if conditioning_value_quantile != 1:
             print("WARNING: PC Optimizer is in ablation mode. For best performance set conditioning_value_quantile=1.")
+        
+        # DynaOB Adaptations
+        self.prior_kind = prior_kind
+        self.prior_origin_path = f"{PRIOR_ORIGIN_BASE_PATH}/{task}.csv"
+        self.priors = pd.read_csv(self.prior_origin_path)
 
     def optimize(self):
         """
@@ -92,45 +103,202 @@ class PCOptimizer(Optimizer):
             tuple: Tuple (cfg, score) containing the best configuration and best score (validation score).
         """
         intervene = False
-        for i in range(self._num_iterations):
-            self._curr_iter = i
-            if i % 10 == 0:
-                print(f"Iteration {i+1}/{self._num_iterations}")
-            
-            if self._intervention_iters is not None and self._interventions is not None:# and self._intervention_duration is not None:
-                if i in self._intervention_iters:
-                    int_idx = self._intervention_iters.index(i)
-                    print(f"[Optimizer][PC] Using Intervention {int_idx}: {self._interventions[int_idx]}")
-                    self._intervention = self._interventions[int_idx]
-                    intervene = True and self._intervention is not None
-
-            start_time = time() if self._log_hpo_runtime else None
+        iteration = 0
+        start_time = time() if self._log_hpo_runtime else None
+        n_interventions_done = 0
+        iterations_since_refit = 0
+        refit_surrogate_next_iter = False
+        while iteration < self._num_iterations:
+            if iteration % 10 == 0:
+                 print(f"Iteration {iteration+1}/{self._num_iterations}")
 
             if self.curr_pc is None:
                 self._learn_init_pc()
-                configs = self._sample(intervene=intervene)
+                refit_surrogate_next_iter = True
+                iteration += len(self.data)
             else:
+                if iteration in self._intervention_iters:
+                    refit_surrogate_next_iter = True
+                    n_interventions_done +=1
+                    current_cost = -1 * self.data[:, -1].max()
+                    if self.prior_kind == "good":
+                        relevant_configs = self.priors[self.priors["median_cost"] <=  current_cost]
+                        min_cluster = relevant_configs["cluster"].min()
+                        max_cluster = relevant_configs["cluster"].max()
+
+                        if not relevant_configs.empty:
+                            if min_cluster == max_cluster:
+                                cluster = min_cluster
+                            else:
+                                cluster = self._sample_dynabo_cluster(min_cluster, max_cluster, 0.1)
+
+                            prior_center  = self.priors[self.priors["cluster"] == cluster].sort_values("cost", ascending=False)[:1]
+                            self._intervention = self._build_intervention_from_config(self.prior_kind, prior_center, n_interventions_done, iteration)
+                            intervene = True
+                            self._prob_interaction_pc = 1  
+                    elif self.prior_kind == "medium":
+                        relevant_configs = self.priors[self.priors["median_cost"] <=  current_cost]
+                        min_cluster = relevant_configs["cluster"].min()
+                        max_cluster = relevant_configs["cluster"].max()
+
+                        if not relevant_configs.empty:
+                            if min_cluster == max_cluster:
+                                cluster = min_cluster
+                            else:
+                                cluster = self._sample_dynabo_cluster(min_cluster, max_cluster, 0.15)
+
+                            relevant_configs  = self.priors[self.priors["cluster"] == cluster].sort_values("cost", ascending=False)
+                            prior_center = np.random.choice(relevant_configs.index)
+                            prior_center  = self.priors.loc[[prior_center]]
+
+                            self._intervention = self._build_intervention_from_config(self.prior_kind, prior_center, n_interventions_done, iteration)
+                            intervene = True
+                            self._prob_interaction_pc = 1  
+                    elif self.prior_kind == "misleading":
+                        prior_data = deepcopy(self.priors)
+                        current_incumbent = self.data[current_cost == -1 * self.data[:, -1]].flatten()[:-1]
+                        hyperparameter_names = list(self.search_space.get_search_space_definition().keys())
+                        incumbent_config = dict(zip(hyperparameter_names, current_incumbent))
+
+                        closest_clusters = self.compute_closest_clusters(incumbent_config, prior_data)
+                        relevant_configs = prior_data[prior_data["cluster"].isin(closest_clusters["cluster"].values)]
+
+                        # Select cluster with lowest median cost
+                        min_median_cost = relevant_configs["median_cost"].min()
+                        relevant_configs = prior_data[prior_data["median_cost"] == min_median_cost]
+                        prior_center = np.random.choice(relevant_configs.index)
+                        prior_center  = self.priors.loc[[prior_center]]
+                        self._intervention = self._build_intervention_from_config(self.prior_kind, prior_center, n_interventions_done, iteration)
+                        intervene = True
+                        self._prob_interaction_pc = 1  
+                    elif self.prior_kind == "deceiving":
+                        relevant_cluster_lower_bound = 0.95
+                        relevant_cluster_upper_bound = 1.0
+                        relevant_clusters = self.priors[
+                            self.priors["cluster"].between(relevant_cluster_lower_bound * self.priors["cluster"].max(), relevant_cluster_upper_bound * self.priors["cluster"].max())
+                        ]["cluster"].unique()
+                        cluster = np.random.choice(relevant_clusters)
+
+                        prior_center  = self.priors[self.priors["cluster"] == cluster].sort_values("cost", ascending=False)[-1:]
+                        self._intervention = self._build_intervention_from_config(self.prior_kind, prior_center, n_interventions_done, iteration)
+                        intervene = True
+                        self._prob_interaction_pc = 1  
+                    elif self.prior_kind == "no_prior":
+                        self._intervention = None
+                        intervene = False
+                    else:
+                        raise ValueError(f"Unknown prior kind: {self.prior_kind}")  
+
                 if self._pc_type == 'parametric':
                     self._learn_pc_parametric()
                 elif self._pc_type == 'quantile':
                     num_buckets = compute_bin_number(self.data.shape[0])
                     self._learn_pc_quantile(num_buckets, split_mode='linear', q_max=0.97)
                 else:
-                    self._learn_pc()
-                configs = self._sample(intervene=intervene)
+                    if refit_surrogate_next_iter:
+                        refit_surrogate_next_iter = False
+                        iterations_since_refit = 0
+                        self._learn_pc()
+                    
+                iterations_since_refit +=1
 
-            if self._log_hpo_runtime:
-                end_time = time()
-                diff = end_time - start_time
-                self.hpo_runtimes.append(diff)
-            self._evaluate(configs)
-            print(f"BEST: {self.data[:, -1].max()}")
-            self._print_acc()
+                configs = self._sample(intervene=intervene)
+                self._evaluate(configs)
+
+                if self._log_hpo_runtime:
+                    end_time = time()
+                    diff = end_time - start_time
+                    self.hpo_runtimes.append(diff)
+                
+                #print(f"BEST: {self.data[:, -1].max()}")
+                iteration += len(configs)
+
         val_performances = [e.val_performance for _, e, _ in self.evaluations]
         max_idx = int(np.argmax(val_performances))
         cfg, res = self.evaluations[max_idx][:2]
+        print(np.max(val_performances))
         return cfg, res
+    
+    
+    def _sample_dynabo_cluster(self, min_cluster, max_cluster, decay):
+        vals = np.arange(min_cluster, max_cluster)
+        probs = np.exp(-decay * (vals - min_cluster))
+        probs /= probs.sum()
+        return np.random.choice(vals, p=probs[::-1])
+    
+    def _build_intervention_from_config(self, prior_kind: str, prior_df: pd.DataFrame, n_interventions_done: int, trial_number: int) -> Dict:
+        # Extract the config values for each hyperparameter
+        # Extract the upper and lower bounds for each hyperparameter
+        # Define the parameters for the intervention distribution
+        #return the intervention
 
+        print()
+        pd1_columns = prior_df.columns.tolist()
+        pd1_columns = [col for col in pd1_columns if col.startswith('config')]
+        pd1_centers = prior_df[pd1_columns]
+
+        search_space_bounds = {
+            key: {} for key in self.search_space.get_search_space_definition().keys()
+        }
+
+        for key, val in self.search_space.get_search_space_definition().items():
+            search_space_bounds[key]['min'] = val['min']
+            search_space_bounds[key]['max'] = val['max']
+
+        stds = {}
+        for key, value in search_space_bounds.items():
+            stds[key] = (value["max"] - value["min"]) / (5 * n_interventions_done)
+
+        return {
+                "hps.lr_hparams.decay_steps_factor": {"dist": "gauss", "parameters": [pd1_centers["config_lr_decay_factor"], stds["hps.lr_hparams.decay_steps_factor"]]}, # Parameters is first the center, than the standard deviation 
+                "hps.lr_hparams.initial_value": {"dist": "gauss", "parameters": [pd1_centers["config_lr_initial"], stds["hps.lr_hparams.initial_value"]]},
+                'hps.lr_hparams.power' : {"dist": "gauss", "parameters": [pd1_centers["config_lr_power"], stds["hps.lr_hparams.power"]]},
+                'hps.opt_hparams.momentum' : {"dist": "gauss", "parameters": [pd1_centers["config_opt_momentum"], stds["hps.opt_hparams.momentum"]]},
+        }
+
+    def compute_closest_clusters(self, incumbent_config, prior_data: pd.DataFrame):
+        """Dynabo based function to compute the closest clusters"""
+        # Preprocess Data
+        centroid_configurations = prior_data[[col for col in prior_data.columns if col.startswith("medoid_config") or col == "cluster"]].drop_duplicates()
+        centroid_configurations_only_config = centroid_configurations[[col for col in centroid_configurations.columns if col.startswith("medoid_config")]]
+        centroid_configurations_only_config.columns = [col.replace("medoid_config_", "") for col in centroid_configurations_only_config.columns]
+
+        incumbent_config = {
+            "lr_decay_factor" : incumbent_config["hps.lr_hparams.decay_steps_factor"],
+            "lr_initial" : incumbent_config["hps.lr_hparams.initial_value"],
+            "lr_power" : incumbent_config["hps.lr_hparams.power"],
+            "opt_momentum" : incumbent_config["hps.opt_hparams.momentum"],
+        }
+
+        # Create Distance Matrix
+        keys = list(incumbent_config.keys())
+        values = list()
+        for key in keys:
+            if key in incumbent_config.keys():
+                values.append(incumbent_config[key])
+            else:
+                values.append(np.nan)
+        gower_matrix_dataframe = pd.DataFrame(columns=list(keys), data=[values])
+        gower_matrix_dataframe = pd.concat([gower_matrix_dataframe, centroid_configurations_only_config], ignore_index=True, axis=0)
+        cat_features = [not pd.api.types.is_numeric_dtype(gower_matrix_dataframe[col]) for col in gower_matrix_dataframe.columns]
+        distance_matrix = gower.gower_matrix(gower_matrix_dataframe.fillna(-1), cat_features=cat_features)
+
+        # Select top 11 entries. The 10 closest clusters and the incumbent itself
+        relevant_distances = distance_matrix[0, :]
+
+        # Remove the incumbent itself
+        closest_k_cluster_indexes = np.argsort(relevant_distances)[1:6]
+        closest_k_clusters_centroids = gower_matrix_dataframe.iloc[closest_k_cluster_indexes]
+
+        whole_entries = pd.merge(
+            closest_k_clusters_centroids,
+            centroid_configurations,
+            left_on=list(closest_k_clusters_centroids.columns),
+            right_on=[f"medoid_config_{hyperparameter}" for hyperparameter in incumbent_config.keys()],
+            how="left",
+        )
+
+        return whole_entries[["cluster"]]
 
     def intervene(self, interventions: List[Dict], iters):
         """
@@ -355,7 +523,22 @@ class PCOptimizer(Optimizer):
             if accept_intervention == 1:
                 cond_array = self._apply_intervention()
             cond_array[:, -1] = self._get_conditioning_value()
-        # EI sampling
+        
+            # Randomly mask 1 to all intervention dimensions to allow PC to have influence
+            #always set prior on learing rate and momentum
+            use_the_best_hyperparameters = True
+            if use_the_best_hyperparameters:
+                # set dim 0 = nan and dim 2 = nan
+                cond_array[:, 0] = np.nan
+                cond_array[:, 2] = np.nan
+            else:
+                n_maskedims = np.random.randint(1, len(self._intervention.keys()) +1, len(cond_array))
+                for i in range(len(cond_array)):
+                    mask_dims = np.random.choice(range(len(self._intervention.keys())), n_maskedims[i], replace=False)
+                    for position in mask_dims:
+                        cond_array[i, position] = np.nan
+
+        # EI sampling¨        
         if self._use_eic:
             sampled_configs = self._ei()
         # Conditional sampling with self-reensurance
@@ -366,15 +549,17 @@ class PCOptimizer(Optimizer):
                 re_ensurance_cond = np.copy(samples_)
                 re_ensurance_cond[:, -1] = np.nan
                 y_pred = sample_instances(self.curr_pc, re_ensurance_cond, np.random.RandomState(i))[:, -1].flatten()
+                samples_[:, -1] = y_pred
                 idx = np.argmax(y_pred).flatten()[0]
                 best_configs.append(samples_[idx])
             samples = np.array(best_configs)
             y_ = samples[:, -1]
-            idx = np.argsort(y_).flatten()[:self._samples_per_iter]
+            idx = [np.argmax(y_)]
             samples = samples[idx]
             sampled_configs = samples[:, :-1]
 
-        sampled_configs = sample_from_ball(sampled_configs, self.search_space, self.ball_radius, sampled_configs.shape[0])
+        #sampled_configs = sample_from_ball(sampled_configs, self.search_space, self.ball_radius, sampled_configs.shape[0])
+        # We removed this after talking to the papers of the original papers. They do not use this in their final version.
         
         for i, (_, v) in enumerate(self.search_space.get_search_space_definition().items()):
             if v['dtype'] == 'float':

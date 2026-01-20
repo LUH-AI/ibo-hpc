@@ -10,7 +10,7 @@ import warnings
 
 class PD1InteractiveExperiment(BenchmarkExperiment):
 
-    def __init__(self, optimizer_name, task='cifar10', interaction_idx=0, seed=0) -> None:
+    def __init__(self, optimizer_name,prior_kind, task='cifar10', interaction_idx=0, seed=0, ) -> None:
         self.benchmark_name = 'pd1'
         self.benchmark_config = {
             'task': task
@@ -22,7 +22,7 @@ class PD1InteractiveExperiment(BenchmarkExperiment):
         self._optimizer_name = optimizer_name
         self._seed = seed
         self.optimizer_config = self.get_optimizer_config(benchmark)
-        optimizer = OptimizerFactory.get_optimizer(optimizer_name, self.optimizer_config)   
+        optimizer = OptimizerFactory.get_optimizer(optimizer_name, self.optimizer_config, prior_kind=prior_kind, task=task)   
         super().__init__(benchmark, optimizer)     
 
     def run(self):
@@ -66,10 +66,10 @@ class PD1InteractiveExperiment(BenchmarkExperiment):
             return {
                 'objective': self.evaluate_config,
                 'search_space': benchmark.search_space,
-                'iterations': 10,
+                'iterations': 50,
                 'num_samples': 10,
                 'num_self_consistency_samplings': 10,
-                'initial_samples': 10,
+                'initial_samples': 12,
                 'use_ei': False,
                 'num_ei_repeats': 20,
                 'pc_type': 'mspn',
@@ -105,26 +105,7 @@ class PD1InteractiveExperiment(BenchmarkExperiment):
         
 
     def get_pc_interventions(self):
-        with open('./interventions/pd1.json', 'r') as f:
-            ints_json = json.load(f)
-
-        interaction_iters, interactions = [], []
-        for interaction in ints_json:
-            interaction_iters.append(interaction['iteration'])
-            interactions.append(interaction['intervention'])
-        if len(self._interaction_idx) == 1:
-            idx = self._interaction_idx[0]
-            if idx == -1:
-                return interactions, interaction_iters
-            else:
-                return [interactions[idx]], [interaction_iters[idx]]
-        else:
-            final_interactions, final_iterations = [], []
-            for i in self._interaction_idx:
-                final_interactions.append(interactions[i])
-                final_iterations.append(interaction_iters[i])
-            return final_interactions, final_iterations
-        
+        return [dict(), dict(), dict(), dict()], [13, 23, 33, 43]    
     
     def get_pibo_intervention(self):
         print("Getting PiBO interaction. Iteration will be set to 0 by default.")

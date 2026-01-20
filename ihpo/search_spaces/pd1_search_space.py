@@ -1,6 +1,6 @@
 from .search_space import SearchSpace
 import numpy as np
-from ..consts.dtypes import MetaType
+from spn.structure.StatisticalTypes import MetaType
 from ConfigSpace import ConfigurationSpace
 from ConfigSpace.hyperparameters import UniformFloatHyperparameter
 from syne_tune.config_space import Float, loguniform
@@ -8,8 +8,9 @@ from copy import deepcopy
 
 class PD1SearchSpace(SearchSpace):
 
-    def __init__(self) -> None:
+    def __init__(self, task) -> None:
         super().__init__()
+        self.task = task
         self.search_space_definition = self.get_search_space_definition()
 
     def sample(self, size=1, keep_domain=True, exclude_fidelities=False, **kwargs):
@@ -78,36 +79,130 @@ class PD1SearchSpace(SearchSpace):
         return True
     
     def get_search_space_definition(self):
-        search_space_definition = {
-            'hps.lr_hparams.decay_steps_factor': {
-                'type': MetaType.REAL,
-                'min': 0.01,
-                'max': 0.99,
-                'dtype': 'float',
-                'is_log': False,
-            },
-            'hps.lr_hparams.initial_value': {
-                'type': MetaType.REAL,
-                'min': 1e-5,
-                'max': 10,
-                'dtype': 'float',
-                'is_log': True,
-            },
-            'hps.lr_hparams.power': {
-                'type': MetaType.REAL,
-                'min': 0.1,
-                'max': 2.0,
-                'dtype': 'float',
-                'is_log': False,
-            },
-            'hps.opt_hparams.momentum': {
-                'type': MetaType.REAL,
-                'min': 1e-5, # according to PD1 paper this is 1e-3, but in data there are values starting at 1e-5
-                'max': 1.0,
-                'dtype': 'float',
-                'is_log': True,
+        if self.task == "cifar100_wideresnet_2048":
+            search_space_definition = {
+                'hps.lr_hparams.decay_steps_factor': {
+                    'type': MetaType.REAL,
+                    'min': 0.010093,
+                    'max': 0.989012,
+                    'dtype': 'float',
+                    'is_log': False,
+                },
+                'hps.lr_hparams.initial_value': {
+                    'type': MetaType.REAL,
+                    'min': 0.00001,
+                    'max': 9.779176,
+                    'dtype': 'float',
+                    'is_log': True,
+                },
+                'hps.lr_hparams.power': {
+                    'type': MetaType.REAL,
+                    'min': 0.100708,
+                    'max': 1.999376,
+                    'dtype': 'float',
+                    'is_log': False,
+                },
+                'hps.opt_hparams.momentum': {
+                    'type': MetaType.REAL,
+                    'min': 0.000059, # according to PD1 paper this is 1e-3, but in data there are values starting at 1e-5
+                    'max': 0.998993,
+                    'dtype': 'float',
+                    'is_log': True,
+                }
             }
-        }
+        elif self.task == "imagenet_resnet_512":
+            search_space_definition = {
+                'hps.lr_hparams.decay_steps_factor': {
+                    'type': MetaType.REAL,
+                    'min': 0.010294,
+                    'max': 0.989753,
+                    'dtype': 'float',
+                    'is_log': False,
+                },
+                'hps.lr_hparams.initial_value': {
+                    'type': MetaType.REAL,
+                    'min': 0.00001,
+                    'max': 9.774312,
+                    'dtype': 'float',
+                    'is_log': True,
+                },
+                'hps.lr_hparams.power': {
+                    'type': MetaType.REAL,
+                    'min': 0.100225,
+                    'max': 1.999326,
+                    'dtype': 'float',
+                    'is_log': False,
+                },
+                'hps.opt_hparams.momentum': {
+                    'type': MetaType.REAL,
+                    'min': 5.9e-05, # according to PD1 paper this is 1e-3, but in data there are values starting at 1e-5
+                    'max':  0.998993,
+                    'dtype': 'float',
+                    'is_log': True,
+                }
+            }
+        elif self.task == "lm1b_transformer_2048":
+            search_space_definition = {
+                'hps.lr_hparams.decay_steps_factor': {
+                    'type': MetaType.REAL,
+                    'min': 0.010543,
+                    'max': 0.9885653,
+                    'dtype': 'float',
+                    'is_log': False,
+                },
+                'hps.lr_hparams.initial_value': {
+                    'type': MetaType.REAL,
+                    'min': 1e-05,
+                    'max': 9.986256,
+                    'dtype': 'float',
+                    'is_log': True,
+                },
+                'hps.lr_hparams.power': {
+                    'type': MetaType.REAL,
+                    'min': 0.100811,
+                    'max': 1.999659,
+                    'dtype': 'float',
+                    'is_log': False,
+                },
+               'hps.opt_hparams.momentum': {
+                    'type': MetaType.REAL,
+                    'min': 5.9e-05, # according to PD1 paper this is 1e-3, but in data there are values starting at 1e-5
+                    'max':  0.9989986,
+                    'dtype': 'float',
+                    'is_log': True,
+                }
+            }
+        elif self.task == "translatewmt_xformer_64":
+            search_space_definition = {
+                'hps.lr_hparams.decay_steps_factor': {
+                    'type': MetaType.REAL,
+                    'min': 0.0100221257,
+                    'max': 0.988565263,
+                    'dtype': 'float',
+                    'is_log': False,
+                },
+                'hps.lr_hparams.initial_value': {
+                    'type': MetaType.REAL,
+                    'min': 1.00276e-05,
+                    'max': 9.8422475735,
+                    'dtype': 'float',
+                    'is_log': True,
+                },
+                'hps.lr_hparams.power': {
+                    'type': MetaType.REAL,
+                    'min': 0.1004250993,
+                    'max': 1.9985927056,
+                    'dtype': 'float',
+                    'is_log': False,
+                },
+               'hps.opt_hparams.momentum': {
+                    'type': MetaType.REAL,
+                    'min': 5.86114e-05, # according to PD1 paper this is 1e-3, but in data there are values starting at 1e-5
+                    'max': 0.9989999746,
+                    'dtype': 'float',
+                    'is_log': True,
+                }
+            }
         return search_space_definition
 
     def change_search_space(self, key, value):
