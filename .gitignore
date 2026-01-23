@@ -18,3 +18,4 @@ slurm*.out
 pd_experiment_without_sample_from_ball
 pd1_experiments_with_sample_from_ball
 pd1_experiment
+pd1_experiments_with_pointwise_priors/

@@ -10,7 +10,7 @@ import warnings
 
 class PD1InteractiveExperiment(BenchmarkExperiment):
 
-    def __init__(self, optimizer_name,prior_kind, task='cifar10', interaction_idx=0, seed=0, ) -> None:
+    def __init__(self, optimizer_name,prior_kind, task='cifar10', interaction_idx=0, seed=0, point_prior=True) -> None:
         self.benchmark_name = 'pd1'
         self.benchmark_config = {
             'task': task
@@ -22,7 +22,7 @@ class PD1InteractiveExperiment(BenchmarkExperiment):
         self._optimizer_name = optimizer_name
         self._seed = seed
         self.optimizer_config = self.get_optimizer_config(benchmark)
-        optimizer = OptimizerFactory.get_optimizer(optimizer_name, self.optimizer_config, prior_kind=prior_kind, task=task)   
+        optimizer = OptimizerFactory.get_optimizer(optimizer_name, self.optimizer_config, prior_kind=prior_kind, task=task, point_prior=point_prior)   
         super().__init__(benchmark, optimizer)     
 
     def run(self):

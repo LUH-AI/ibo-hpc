@@ -35,7 +35,7 @@ class PCOptimizer(Optimizer):
     def __init__(self, search_space: SearchSpace, objective, iterations=100,
                  num_self_consistency_samplings=20, num_samples=20, initial_samples=20, use_ei=False, num_ei_repeats=20,
                  num_ei_samples=1000, num_ei_variance_approx=10, interaction_dist_sample_decay=0.9, 
-                 conditioning_value_quantile=1, log_hpo_runtime=False, pc_type='mspn', max_rel_ball_size=0.05, seed=0, prior_kind=None, task=None) -> None:
+                 conditioning_value_quantile=1, log_hpo_runtime=False, pc_type='mspn', max_rel_ball_size=0.05, seed=0, prior_kind=None, task=None, point_prior=False) -> None:
         """
             Init PCOptimizer
 
@@ -89,8 +89,9 @@ class PCOptimizer(Optimizer):
         self.transform = ConfigurationNumericalTransform(search_space)
         if conditioning_value_quantile != 1:
             print("WARNING: PC Optimizer is in ablation mode. For best performance set conditioning_value_quantile=1.")
-        
+
         # DynaOB Adaptations
+        self.use_point_prior = point_prior
         self.prior_kind = prior_kind
         self.prior_origin_path = f"{PRIOR_ORIGIN_BASE_PATH}/{task}.csv"
         self.priors = pd.read_csv(self.prior_origin_path)
@@ -227,34 +228,37 @@ class PCOptimizer(Optimizer):
         return np.random.choice(vals, p=probs[::-1])
     
     def _build_intervention_from_config(self, prior_kind: str, prior_df: pd.DataFrame, n_interventions_done: int, trial_number: int) -> Dict:
-        # Extract the config values for each hyperparameter
-        # Extract the upper and lower bounds for each hyperparameter
-        # Define the parameters for the intervention distribution
-        #return the intervention
-
-        print()
         pd1_columns = prior_df.columns.tolist()
         pd1_columns = [col for col in pd1_columns if col.startswith('config')]
         pd1_centers = prior_df[pd1_columns]
 
-        search_space_bounds = {
-            key: {} for key in self.search_space.get_search_space_definition().keys()
-        }
+        if not self.use_point_prior:    
+            search_space_bounds = {
+                key: {} for key in self.search_space.get_search_space_definition().keys()
+            }
 
-        for key, val in self.search_space.get_search_space_definition().items():
-            search_space_bounds[key]['min'] = val['min']
-            search_space_bounds[key]['max'] = val['max']
+            for key, val in self.search_space.get_search_space_definition().items():
+                search_space_bounds[key]['min'] = val['min']
+                search_space_bounds[key]['max'] = val['max']
 
-        stds = {}
-        for key, value in search_space_bounds.items():
-            stds[key] = (value["max"] - value["min"]) / (5 * n_interventions_done)
+            stds = {}
+            for key, value in search_space_bounds.items():
+                stds[key] = (value["max"] - value["min"]) / (5 * n_interventions_done)
 
-        return {
-                "hps.lr_hparams.decay_steps_factor": {"dist": "gauss", "parameters": [pd1_centers["config_lr_decay_factor"], stds["hps.lr_hparams.decay_steps_factor"]]}, # Parameters is first the center, than the standard deviation 
-                "hps.lr_hparams.initial_value": {"dist": "gauss", "parameters": [pd1_centers["config_lr_initial"], stds["hps.lr_hparams.initial_value"]]},
-                'hps.lr_hparams.power' : {"dist": "gauss", "parameters": [pd1_centers["config_lr_power"], stds["hps.lr_hparams.power"]]},
-                'hps.opt_hparams.momentum' : {"dist": "gauss", "parameters": [pd1_centers["config_opt_momentum"], stds["hps.opt_hparams.momentum"]]},
-        }
+            return {
+                    "hps.lr_hparams.decay_steps_factor": {"dist": "gauss", "parameters": [pd1_centers["config_lr_decay_factor"], stds["hps.lr_hparams.decay_steps_factor"]]}, # Parameters is first the center, than the standard deviation 
+                    "hps.lr_hparams.initial_value": {"dist": "gauss", "parameters": [pd1_centers["config_lr_initial"], stds["hps.lr_hparams.initial_value"]]},
+                    'hps.lr_hparams.power' : {"dist": "gauss", "parameters": [pd1_centers["config_lr_power"], stds["hps.lr_hparams.power"]]},
+                    'hps.opt_hparams.momentum' : {"dist": "gauss", "parameters": [pd1_centers["config_opt_momentum"], stds["hps.opt_hparams.momentum"]]},
+            }
+        else:
+            return {
+                "hps.lr_hparams.decay_steps_factor":  pd1_centers["config_lr_decay_factor"].iloc[0], # Parameters is first the center, than the standard deviation 
+                "hps.lr_hparams.initial_value": pd1_centers["config_lr_initial"].iloc[0],
+                'hps.lr_hparams.power' : pd1_centers["config_lr_power"].iloc[0],
+                'hps.opt_hparams.momentum' : pd1_centers["config_opt_momentum"].iloc[0],
+            }
+
 
     def compute_closest_clusters(self, incumbent_config, prior_data: pd.DataFrame):
         """Dynabo based function to compute the closest clusters"""
@@ -526,14 +530,14 @@ class PCOptimizer(Optimizer):
         
             # Randomly mask 1 to all intervention dimensions to allow PC to have influence
             #always set prior on learing rate and momentum
-            use_the_best_hyperparameters = True
+            use_the_best_hyperparameters = False
             if use_the_best_hyperparameters:
                 # set dim 0 = nan and dim 2 = nan
                 cond_array[:, 0] = np.nan
                 cond_array[:, 2] = np.nan
             else:
-                n_maskedims = np.random.randint(1, len(self._intervention.keys()) +1, len(cond_array))
                 for i in range(len(cond_array)):
+                    n_maskedims = np.random.randint(1, len(self._intervention.keys()) +1, len(cond_array))
                     mask_dims = np.random.choice(range(len(self._intervention.keys())), n_maskedims[i], replace=False)
                     for position in mask_dims:
                         cond_array[i, position] = np.nan

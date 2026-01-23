@@ -14,17 +14,17 @@ from ihpo.experiments import (
 )
 from ihpo.utils import SEEDS, create_dir
 
-def get_experiment(args, seed, prior_kind):
+def get_experiment(args, seed, prior_kind, point_prior):
     if args.exp == 'pd1':
         experiment = PD1Experiment(args.optimizer, args.task, seed=seed, prior_kind=prior_kind)
     elif args.exp == 'pd1_int':
-        experiment = PD1InteractiveExperiment(args.optimizer, prior_kind=prior_kind, task=args.task, interaction_idx=args.interaction_idx, seed=seed, )
+        experiment = PD1InteractiveExperiment(args.optimizer, prior_kind=prior_kind, task=args.task, interaction_idx=args.interaction_idx, seed=seed, point_prior=point_prior)
     else:
         raise ValueError(f'No such experiment: {args.exp}. Must be hpo, nas101, nas201, transnas or jahs.')
     return experiment
 
 
-def run_experiment(args, seed_idx, prior_kind):
+def run_experiment(args, seed_idx, prior_kind, point_prior):
     exp_counter = 0
     rt = RTPT('JS', 'IHPO', 1)
     rt.start()
@@ -37,7 +37,7 @@ def run_experiment(args, seed_idx, prior_kind):
     exp_time = datetime.now().strftime("%m-%d-%Y_%H:%M:%S")
     file_name = f'{args.exp}_{args.task}_{exp_time}_{seed}.csv'
     log_file = os.path.join(args.log_dir, file_name)
-    experiment = get_experiment(args, seed, prior_kind)
+    experiment = get_experiment(args, seed, prior_kind, point_prior)
     try:
         # PC fails sometimes, ignore these runs
         experiment.run()
@@ -48,8 +48,9 @@ def run_experiment(args, seed_idx, prior_kind):
         raise e
         print(f"Experiment failed with: {e}")
 
-for task in ["translatewmt_xformer_64"]:
-    for prior_kind in ["good", "medium", "misleading", "deceiving", "no_prior"]:
+point_prior = True
+for task in ["lm1b_transformer_2048",]:
+    for prior_kind in ["good", "medium", "misleading", "deceiving",]:
         parser = argparse.ArgumentParser()
         parser.add_argument('--num-experiments', default=30, type=int)
         parser.add_argument('--optimizer', default='pc', type=str)
@@ -62,7 +63,10 @@ for task in ["translatewmt_xformer_64"]:
         parser.add_argument('--handle-invalid-configs', action='store_true', help='Provides fall back value for invalid configurations. Only applies to some experiments.')
         parser.add_argument('--interaction-idx', nargs='+', type=int, default=[13, 23, 33, 43])
         if prior_kind != "no_prior":
-            parser.add_argument('--log-dir', default=f'./pd1_experiments/with_prior/{task}/{prior_kind}', type=str)
+            if not point_prior:
+                parser.add_argument('--log-dir', default=f'./pd1_experiments/with_prior/{task}/{prior_kind}', type=str)
+            elif point_prior:
+                parser.add_argument('--log-dir', default=f'./pd1_experiments/with_point_prior/{task}/{prior_kind}', type=str)
         else:
             parser.add_argument('--log-dir', default=f'./pd1_experiments/no_prior/{task}/', type=str)
     
@@ -74,7 +78,7 @@ for task in ["translatewmt_xformer_64"]:
             print("PC optimizer not parallelizable. Run in single thread mode.")
             exp_counter = 0
             while exp_counter < args.num_experiments:
-                run_experiment(args, args.seed_offset + exp_counter, prior_kind)
+                run_experiment(args, args.seed_offset + exp_counter, prior_kind, point_prior)
                 exp_counter += 1
         else:
             num_procs = min(args.num_procs, args.num_experiments) # min ensures thtat there is at least one batch of processes
