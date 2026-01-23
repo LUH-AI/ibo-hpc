@@ -1,3 +1,6 @@
+This repository contains a repository to be executed as a baseline. The main adaptations are the PD1 experiments, and an adaptation of the pc_optimizer.
+Our installation is based on the original repository, but we adapted it to use a Makefile.
+
 # Hyperparameter Optimization via Interacting with Probabilistic Circuits
 This repository contains the code of our AutoML25 paper `Hyperparameter Optimization via Interacting with Probabilistic Circuits`.
 
