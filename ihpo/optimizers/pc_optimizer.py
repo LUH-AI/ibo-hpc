@@ -19,7 +19,7 @@ import gower
 from ConfigSpace import Configuration
 from copy import deepcopy
 # PRiors from DYNABO
-PRIOR_ORIGIN_BASE_PATH = '/mnt/home/luser/DynaBO/benchmark_data/prior_data/mfpbench/cluster'
+PRIOR_ORIGIN_BASE_PATH = '/mnt/home/user/DynaBO/benchmark_data/prior_data/mfpbench/cluster'
 
 warnings.filterwarnings("ignore")
 

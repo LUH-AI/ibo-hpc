@@ -4,9 +4,9 @@
 #SBATCH --mem-per-cpu 4G
 #SBATCH -J pcs
 
-cd /mnt/home/luser/ibo-hpc
+cd /mnt/home/user/ibo-hpc
 
-source /mnt/home/luser/.bashrc
-source /mnt/home/luser/ibo-hpc/.venv/bin/activate
+source /mnt/home/user/.bashrc
+source /mnt/home/user/ibo-hpc/.venv/bin/activate
 
 python main.py
